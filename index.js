@@ -140,15 +140,35 @@ function filter(obj,options) {
             filtered.servers = src.servers;
         }
 
-        const activeSecuritySchemes=
-            (src.paths?Object.keys(src.paths):[])
-                .flatMap(pathUrl =>src.paths[pathUrl])
-                .flatMap(pathElement => Object.keys(pathElement)
-                .flatMap(method =>pathElement[method]))
+        const pathKeys = options.inverse
+            ? (filtered.paths ? Object.keys(filtered.paths) : [])
+            : (src.paths ? Object.keys(src.paths) : [])
+        const paths = options.inverse ? filtered.paths : src.paths
+        const activeSecuritySchemes=pathKeys
+                .flatMap(pathUrl =>paths[pathUrl])
+                .flatMap(pathElement =>
+                    Object.keys(pathElement).flatMap(method =>pathElement[method])
+                )
                 .filter(path => Object.keys(path).filter(value => options.flags.includes(value)))
                 .flatMap(path =>{
                     if (!filtered.security && Array.isArray(path.security)) {
                         return path.security.flatMap(securityItem => Object.keys(securityItem));
+                    } else {
+                        return [];
+                    }
+                })
+                .filter(filterUnique)
+        const activeScopes=pathKeys
+                .flatMap(pathUrl =>paths[pathUrl])
+                .flatMap(pathElement =>
+                    Object.keys(pathElement).flatMap(method =>pathElement[method])
+                )
+                .filter(path => Object.keys(path).filter(value => options.flags.includes(value)))
+                .flatMap(path =>{
+                    if (!filtered.security && Array.isArray(path.security)) {
+                        return path.security.flatMap(
+                            securityItem => Object.values(securityItem).flat()
+                        );
                     } else {
                         return [];
                     }
@@ -164,7 +184,30 @@ function filter(obj,options) {
             if (!filtered.components){
                 filtered.components ={};
             }
-            filtered.components.securitySchemes = Object.fromEntries(Object.entries(src.components.securitySchemes).filter(([key]) => activeSecuritySchemes.includes(key)));
+            filtered.components.securitySchemes = Object.fromEntries(
+                Object.entries(src.components.securitySchemes)
+                    .filter(([key]) => activeSecuritySchemes.includes(key))
+            );
+            filtered.components.securitySchemes = Object.fromEntries(
+                Object.entries(filtered.components.securitySchemes)
+                    .map(([scheme, securityItem]) => {
+                        if (securityItem.type && securityItem.type.toLowerCase() === 'oauth2') {
+                            securityItem.flows = Object.fromEntries(
+                                Object.entries(securityItem.flows)
+                                .map(([key, flow]) => {
+                                    flow.scopes = Object.fromEntries(
+                                        Object.entries(flow.scopes)
+                                        .filter(([scope]) =>  {
+                                            return activeScopes.includes(scope)
+                                        })
+                                    )
+                                    return [key, flow]
+                                })
+                            )
+                        }
+                        return [scheme, securityItem]
+                    })
+            )
         }
     }
     return (options.inverse ? filtered : src);
